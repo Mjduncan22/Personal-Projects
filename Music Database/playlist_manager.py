@@ -18,17 +18,18 @@ class PlaylistManager:
         playlist_ref.set(playlist_data)
         return playlist_ref.id
 
-    def add_song(self, playlist_id, title, artist, duration, album=None, album_cover_url=None):
+    def add_song(self, playlist_id, title, artist, duration, album, cover_url, user_id=None):
+        song_ref = self.db.collection('songs').document()
         song_data = {
-            'playlist_id':     playlist_id,
-            'title':           title,
-            'artist':          artist,
-            'duration':        duration,
-            'album':           album,
-            'album_cover_url': album_cover_url,
-            'added_at':        datetime.now()
+            'title': title,
+            'artist': artist,
+            'duration': duration,
+            'album': album,
+            'album_cover_url': cover_url,
+            'playlist_id': playlist_id,
         }
-        song_ref = self.songs_col.document()
+        if user_id:
+            song_data['user_id'] = user_id 
         song_ref.set(song_data)
         return song_ref.id
 
@@ -67,12 +68,8 @@ class PlaylistManager:
         query = self.songs_col.stream()
         return [{**song.to_dict(), 'id': song.id} for song in query]
 
-    def get_songs_for_user(self, owner):
-        pls = self.get_all_playlists(owner)
-        ids = [pl['id'] for pl in pls]
-        if not ids:
-            return []
-        query = self.songs_col.where('playlist_id', 'in', ids).stream()
+    def get_songs_for_user(self, user_id):
+        query = self.songs_col.where('user_id', '==', user_id).stream()
         return [{**song.to_dict(), 'id': song.id} for song in query]
 
     def unlink_song_from_playlist(self, playlist_id, song_id):

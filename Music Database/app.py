@@ -62,21 +62,27 @@ def create_playlist():
     pid = pm.create_playlist(name, uid, desc)
     return jsonify({'playlist_id': pid}), 201
 
-
-# 3. List all playlists for current user
-@app.route('/api/playlists', methods=['GET', 'OPTIONS'])
-def list_playlists():
+# 3. Add new song (not assigned to a playlist yet)
+@app.route('/api/songs', methods=['POST', 'OPTIONS'])
+def create_song():
     if request.method == 'OPTIONS':
         return '', 200
-    authh = request.headers.get('Authorization', '')
-    token = authh.split(' ')[1] if ' ' in authh else authh
-    try:
-        uid = auth.verify_id_token(token)['uid']
-    except Exception as e:
-        return jsonify({'error': str(e)}), 401
-    pls = pm.get_all_playlists(uid)
-    return jsonify(pls), 200
+    uid, err = get_user_from_token()
+    if err:
+        return jsonify({'error': err}), 401
 
+    data = request.get_json() or {}
+    title = data.get('title')
+    artist = data.get('artist')
+    duration = data.get('duration')
+    album = data.get('album', '')
+    cover = data.get('album_cover_url', '')
+
+    if not (title and artist and duration):
+        return jsonify({'error': 'Missing title, artist, or duration'}), 400
+
+    song_id = pm.add_song(None, title, artist, duration, album, cover, user_id=uid) 
+    return jsonify({'song_id': song_id}), 201
 
 # 4. Get playlist details
 @app.route('/api/playlists/<playlist_id>', methods=['GET', 'OPTIONS'])
@@ -101,11 +107,11 @@ def add_song(playlist_id):
     title = data.get('title')
     artist = data.get('artist')
     duration = data.get('duration')
-    album = data.get('album')
-    cover = data.get('album_cover_url')
+    album = data.get('album', '')
+    cover = data.get('album_cover_url', '')
     if not (title and artist and duration):
         return jsonify({'error': 'Missing title, artist, or duration'}), 400
-    sid = pm.add_song(playlist_id, title, artist, duration, album, cover)
+    sid = pm.add_song(playlist_id, title, artist, duration, album, cover, user_id=uid)
     return jsonify({'song_id': sid}), 201
 
 
@@ -201,6 +207,19 @@ def explore_playlists():
     pls = pm.get_all_playlists_public()
     return jsonify(pls), 200
 
+# 14. List all playlists for current user
+@app.route('/api/playlists', methods=['GET', 'OPTIONS'])
+def list_playlists():
+    if request.method == 'OPTIONS':
+        return '', 200
+    authh = request.headers.get('Authorization', '')
+    token = authh.split(' ')[1] if ' ' in authh else authh
+    try:
+        uid = auth.verify_id_token(token)['uid']
+    except Exception as e:
+        return jsonify({'error': str(e)}), 401
+    pls = pm.get_all_playlists(uid)
+    return jsonify(pls), 200
 
 if __name__ == '__main__':
     app.run(debug=True)

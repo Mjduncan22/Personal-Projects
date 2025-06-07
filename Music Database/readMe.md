@@ -15,7 +15,7 @@ To use the program:
 2. Open the provided HTML interface in a browser
 3. Create playlists, add songs, and manage your music in real time
 
-[Software Demo Video](http://youtube.link.goes.here)
+[Software Demo Video](https://youtu.be/AugOjSAz61w)
 
 ---
 

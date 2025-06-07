@@ -1,9 +1,14 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
   <title>Music Playlist Manager</title>
+
+  <!-- Firebase compat builds -->
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; }
     #mainAppScreen { display: none; max-width: 800px; margin: 0 auto; }
@@ -14,6 +19,8 @@
     input, select, textarea { width: 100%; padding: 6px; margin: 4px 0 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
     button { padding: 6px 12px; margin: 4px 0; border: none; background: #007bff; color: #fff; border-radius: 4px; cursor: pointer; }
     button:hover { background: #0056b3; }
+    ul { list-style:none; padding:0; }
+    li { margin-bottom:8px; }
     .btn-small { padding:4px 8px; font-size:12px; margin-left:4px; }
     textarea { height:150px; }
   </style>
@@ -54,7 +61,7 @@
     <h3>Add New Song to Database</h3>
     <input id="newSongTitle" type="text" placeholder="Song Title" />
     <input id="newSongArtist" type="text" placeholder="Artist" />
-    <input id="newSongDuration" type="text" placeholder="Duration (e.g. 2:45)" />
+    <input id="newSongDuration" type="text" placeholder="Duration (seconds)" />
     <input id="newSongAlbum" type="text" placeholder="Album (optional)" />
     <input id="newSongCoverUrl" type="text" placeholder="Album Cover URL (optional)" />
     <button id="addToDbBtn">Add Song to Database</button>
@@ -88,280 +95,255 @@
     <!-- Import Playlist -->
     <hr>
     <h3>Import Playlist</h3>
-    <textarea id="importJson" placeholder="Paste exported playlist JSON here"></textarea>
+    <input type="file" id="import-file" accept=".json" />
     <button id="importPlaylistBtn">Import Playlist</button>
-    <p id="importStatus"></p>
   </div>
 
   <script>
-    // Firebase config
+    // — Firebase config —–
     const firebaseConfig = {
-      apiKey: "AIzaSyDBI4GLo05qG6bdP4KUA8DgtoMeosTiIkk",
-      authDomain: "music-manager-a7d10.firebaseapp.com",
+      apiKey:    "AIzaSyDBI4GLo05qG6bdP4KUA8DgtoMeosTiIkk",
+      authDomain:"music-manager-a7d10.firebaseapp.com",
       projectId: "music-manager-a7d10",
-      storageBucket: "music-manager-a7d10.appspot.com",
-      messagingSenderId: "1080216458214",
-      appId: "1:1080216458214:web:10fda47002af0159917c27",
-      measurementId: "G-2VNK9CCLPB"
+      storageBucket:"music-manager-a7d10.appspot.com",
+      messagingSenderId:"1080216458214",
+      appId:     "1:1080216458214:web:10fda47002af0159917c27"
     };
     firebase.initializeApp(firebaseConfig);
     const auth = firebase.auth();
+    const API = 'http://localhost:5000/api';
 
-    // DOM refs
-    const loginScreen       = document.getElementById('loginScreen');
-    const mainAppScreen     = document.getElementById('mainAppScreen');
-    const statusEl          = document.getElementById('status');
-    const playlistInfoEl    = document.getElementById('playlistInfo');
-    const playlistsListEl   = document.getElementById('playlistsList');
-    const songsListEl       = document.getElementById('songsList');
-    const allSongsListEl    = document.getElementById('allSongsList');
-    const existingSongSelect= document.getElementById('existingSongSelect');
-    const exportJsonEl      = document.getElementById('exportedJson');
-    const downloadBtn       = document.getElementById('downloadJsonBtn');
-    const importJsonEl      = document.getElementById('importJson');
-    const importStatusEl    = document.getElementById('importStatus');
-    const dbAddStatus       = document.getElementById('dbAddStatus');
-    const assignStatus      = document.getElementById('assignStatus');
+    // — DOM refs & state —–
+    const loginScreen        = document.getElementById('loginScreen');
+    const mainAppScreen      = document.getElementById('mainAppScreen');
+    const statusEl           = document.getElementById('status');
+    const playlistInfoEl     = document.getElementById('playlistInfo');
+    const playlistsListEl    = document.getElementById('playlistsList');
+    const songsListEl        = document.getElementById('songsList');
+    const allSongsListEl     = document.getElementById('allSongsList');
+    const existingSongSelect = document.getElementById('existingSongSelect');
+    const exportJsonEl       = document.getElementById('exportedJson');
+    const downloadBtn        = document.getElementById('downloadJsonBtn');
+    const dbAddStatus        = document.getElementById('dbAddStatus');
+    const assignStatus       = document.getElementById('assignStatus');
 
-    // State
     let idToken = null;
     let currentPlaylistId = null;
     let currentPlaylistName = "";
-    let allSongsCache = [];
 
-    // Login
+    // — Login —–
     document.getElementById('loginBtn').onclick = () => {
       const email = document.getElementById('email').value;
       const pw    = document.getElementById('password').value;
-      statusEl.textContent = "Logging in...";
+      statusEl.textContent = "Logging in…";
       auth.signInWithEmailAndPassword(email, pw)
         .then(u => u.user.getIdToken())
         .then(token => {
           idToken = token;
+          return fetch(API + '/verify-token', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ idToken })
+          });
+        })
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(() => {
           statusEl.textContent = "";
           loginScreen.style.display = 'none';
           mainAppScreen.style.display = 'block';
         })
-        .catch(err => {
-          console.error(err);
-          statusEl.textContent = 'Login failed';
-        });
+        .catch(() => statusEl.textContent = 'Login failed');
     };
 
-    // Logout
+    // — Logout —–
     document.getElementById('logoutBtn').onclick = () => {
-      auth.signOut().then(() => {
-        idToken = null;
-        currentPlaylistId = null;
-        currentPlaylistName = "";
-        playlistInfoEl.textContent = '';
-        playlistsListEl.innerHTML = '';
-        songsListEl.innerHTML = '';
-        allSongsListEl.innerHTML = '';
-        existingSongSelect.innerHTML = '';
-        exportJsonEl.value = '';
-        downloadBtn.style.display = 'none';
-        importJsonEl.value = '';
-        importStatusEl.textContent = '';
-        dbAddStatus.textContent = '';
-        assignStatus.textContent = '';
-        loginScreen.style.display = 'block';
-        mainAppScreen.style.display = 'none';
-      });
+      auth.signOut().then(() => location.reload());
     };
 
-    // Create Playlist
+    // — Helper: generic fetch with bearer —–
+    function api(path, opts={}) {
+      opts.headers = opts.headers||{};
+      opts.headers['Authorization'] = 'Bearer ' + idToken;
+      return fetch(API + path, opts).then(r => r.ok ? r.json() : Promise.reject());
+    }
+
+    // — Create Playlist —–
     document.getElementById('createPlaylistBtn').onclick = () => {
       const name = document.getElementById('playlistName').value.trim();
       const desc = document.getElementById('playlistDescription').value.trim();
-      if (!name) return alert('Enter playlist name');
-      fetch('http://localhost:5000/api/playlists', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      if(!name) return alert('Name required');
+      fetch(API + '/playlists', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ idToken, name, description: desc })
       })
-      .then(r => r.json())
-      .then(d => {
+      .then(r=>r.json())
+      .then(d=>{
         currentPlaylistId = d.playlist_id;
         currentPlaylistName = name;
-        playlistInfoEl.textContent = JSON.stringify(d, null, 2);
+        playlistInfoEl.textContent = JSON.stringify(d,null,2);
         songsListEl.innerHTML = '';
       })
-      .catch(() => alert('Error creating playlist'));
+      .catch(()=>alert('Error creating'));
     };
 
-    // Delete Current Playlist
+    // — Delete Playlist —–
     document.getElementById('deletePlaylistBtn').onclick = () => {
-      if (!currentPlaylistId) return alert('No playlist selected');
-      if (!confirm('Delete this playlist and all its songs?')) return;
-      fetch(`http://localhost:5000/api/playlists/${currentPlaylistId}`, { method: 'DELETE' })
-        .then(r => {
-          if (!r.ok) throw new Error();
+      if(!currentPlaylistId) return alert('No playlist');
+      if(!confirm('Delete?')) return;
+      api('/playlists/'+currentPlaylistId,{method:'DELETE'})
+        .then(()=>{
+          currentPlaylistId = null;
           playlistInfoEl.textContent = '';
           songsListEl.innerHTML = '';
-          currentPlaylistId = null;
-          alert('Playlist deleted');
+          alert('Deleted');
         })
-        .catch(() => alert('Error deleting playlist'));
+        .catch(()=>alert('Error deleting'));
     };
 
-    // Load Playlists
+    // — Load Playlists —–
     document.getElementById('loadPlaylistsBtn').onclick = () => {
-      fetch('http://localhost:5000/api/playlists', {
-        method: 'GET',
-        headers: { 'Authorization': 'Bearer ' + idToken }
-      })
-      .then(r => r.json())
-      .then(list => {
-        playlistsListEl.innerHTML = '';
-        list.forEach(pl => {
-          const li = document.createElement('li');
-          li.textContent = pl.name + ' ';
-          const viewBtn = document.createElement('button');
-          viewBtn.textContent = 'View Songs';
-          viewBtn.className = 'btn-small';
-          viewBtn.onclick = () => {
-            currentPlaylistId = pl.id;
-            currentPlaylistName = pl.name;
-            playlistInfoEl.textContent = JSON.stringify(pl, null, 2);
-            loadSongs(pl.id);
-          };
-          const delBtn = document.createElement('button');
-          delBtn.textContent = 'Delete';
-          delBtn.style.background = '#dc3545';
-          delBtn.className = 'btn-small';
-          delBtn.onclick = () => {
-            if (!confirm(`Delete playlist "${pl.name}"?`)) return;
-            fetch(`http://localhost:5000/api/playlists/${pl.id}`, { method: 'DELETE' })
-              .then(() => li.remove());
-          };
-          li.append(viewBtn, delBtn);
-          playlistsListEl.append(li);
-        });
-      })
-      .catch(() => alert('Error loading playlists'));
+      api('/playlists')
+        .then(list=>{
+          playlistsListEl.innerHTML = '';
+          list.forEach(pl=>{
+            const li = document.createElement('li');
+            li.textContent = pl.name + ' ';
+            const view = document.createElement('button');
+            view.className='btn-small';
+            view.textContent='View';
+            view.onclick = ()=>{
+              currentPlaylistId = pl.id;
+              currentPlaylistName = pl.name;
+              playlistInfoEl.textContent = JSON.stringify(pl,null,2);
+              loadPlaylistSongs(pl.id);
+            };
+            li.append(view);
+            playlistsListEl.append(li);
+          });
+        })
+        .catch(()=>alert('Error loading'));
     };
 
-    // Add New Song to DB
-    document.getElementById('addToDbBtn').onclick = () => {
-      const t = document.getElementById('newSongTitle').value.trim();
-      const a = document.getElementById('newSongArtist').value.trim();
-      const d = document.getElementById('newSongDuration').value.trim();
-      if (!t || !a || !d) return dbAddStatus.textContent = 'Title, artist & duration required';
+    // — Add New Song to DB —–
+    document.getElementById('addToDbBtn').onclick = ()=>{
+      const t  = document.getElementById('newSongTitle').value.trim();
+      const ar = document.getElementById('newSongArtist').value.trim();
+      const du = document.getElementById('newSongDuration').value.trim();
       const al = document.getElementById('newSongAlbum').value.trim();
-      const url= document.getElementById('newSongCoverUrl').value.trim();
-      fetch('http://localhost:5000/api/songs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken, title: t, artist: a, duration: d, album: al, album_cover_url: url })
+      const ur = document.getElementById('newSongCoverUrl').value.trim();
+      if(!t||!ar||!du) return dbAddStatus.textContent='Title, artist & duration required';
+      fetch(API + '/songs',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ idToken, title:t, artist:ar, duration:du, album:al, album_cover_url:ur })
       })
-      .then(r => r.json())
-      .then(d => {
-        dbAddStatus.textContent = 'Added: ' + d.song_id;
+      .then(r=>r.json())
+      .then(d=>{
+        dbAddStatus.textContent='Added: '+d.song_id;
         loadAllSongs();
       })
-      .catch(() => dbAddStatus.textContent = 'Error adding song');
+      .catch(()=>dbAddStatus.textContent='Error adding');
     };
 
-    // Load All Songs
-    document.getElementById('loadAllSongsBtn').onclick = () => {
-      fetch('http://localhost:5000/api/songs', {
-        method: 'GET',
-        headers: { 'Authorization': 'Bearer ' + idToken }
-      })
-      .then(r => r.json())
-      .then(songs => {
-        allSongsListEl.innerHTML = '';
-        existingSongSelect.innerHTML = '';
-        songs.forEach(s => {
-          const li = document.createElement('li');
-          li.textContent = `${s.title} (${s.artist}) `;
-          const delBtn = document.createElement('button');
-          delBtn.textContent = 'Delete from DB';
-          delBtn.style.background = '#dc3545';
-          delBtn.className = 'btn-small';
-          delBtn.onclick = () => {
-            if (!confirm(`Delete "${s.title}" permanently?`)) return;
-            fetch(`http://localhost:5000/api/songs/${s.id}`, { method: 'DELETE' })
-              .then(() => { li.remove(); loadAllSongs(); });
-          };
-          li.append(delBtn);
-          allSongsListEl.append(li);
-          const opt = document.createElement('option');
-          opt.value = s.id;
-          opt.textContent = `${s.title} (${s.artist})`;
-          existingSongSelect.append(opt);
-        });
-      })
-      .catch(() => alert('Error loading songs'));
-    };
-
-    // Assign Existing Song
-    document.getElementById('assignSongBtn').onclick = () => {
-      assignStatus.textContent = '';
-      if (!currentPlaylistId) return assignStatus.textContent = 'Select playlist first';
-      const sid = existingSongSelect.value;
-      if (!sid) return assignStatus.textContent = 'Select a song';
-      fetch(`http://localhost:5000/api/songs/${sid}/playlist`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playlist_id: currentPlaylistId })
-      })
-      .then(r => r.ok ? loadSongs(currentPlaylistId) : Promise.reject())
-      .then(() => assignStatus.textContent = 'Assigned!')
-      .catch(() => assignStatus.textContent = 'Error assigning');
-    };
-
-    // Load Songs in Playlist
-    function loadSongs(pid) {
-      fetch(`http://localhost:5000/api/playlists/${pid}/songs`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      })
-      .then(r => r.json())
-      .then(songs => {
-        songsListEl.innerHTML = '';
-        songs.forEach(s => {
-          const li = document.createElement('li');
-          li.textContent = `${s.title} (${s.artist}) `;
-          const del = document.createElement('button');
-          del.textContent = 'Delete';
-          del.style.background = '#dc3545';
-          del.className = 'btn-small';
-          del.onclick = () => {
-            if (!confirm(`Delete "${s.title}" permanently?`)) return;
-            fetch(`http://localhost:5000/api/songs/${s.id}`, { method: 'DELETE' })
-              .then(() => li.remove());
-          };
-          li.append(del);
-          songsListEl.append(li);
-        });
-      })
-      .catch(() => alert('Error loading songs'));
+    // — Load All Songs —–
+    document.getElementById('loadAllSongsBtn').onclick = loadAllSongs;
+    function loadAllSongs(){
+      api('/songs')
+        .then(songs=>{
+          allSongsListEl.innerHTML='';
+          existingSongSelect.innerHTML='';
+          if (!Array.isArray(songs) || songs.length === 0) {
+            allSongsListEl.innerHTML = '<li>No songs found.</li>';
+            return;
+          }
+          songs.forEach(s=>{
+            const li = document.createElement('li');
+            li.textContent = `${s.title} (${s.artist}) `;
+            const del = document.createElement('button');
+            del.className='btn-small';
+            del.style.background='#dc3545';
+            del.textContent='Delete';
+            del.onclick=()=>{
+              if(!confirm('Delete permanently?'))return;
+              fetch(API + '/songs/' + s.id,{method:'DELETE'})
+                .then(()=>loadAllSongs());
+            };
+            li.append(del);
+            allSongsListEl.append(li);
+            const opt = document.createElement('option');
+            opt.value = s.id;
+            opt.textContent = `${s.title} (${s.artist})`;
+            existingSongSelect.append(opt);
+          });
+        })
+        .catch(()=>alert('Error loading songs'));
     }
 
-    // Export Playlist
-    document.getElementById('exportPlaylistBtn').onclick = () => {
-      if (!currentPlaylistId) return alert('Select playlist');
-      fetch(`http://localhost:5000/api/playlists/${currentPlaylistId}/export`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
+    // — Assign Existing Song —–
+    document.getElementById('assignSongBtn').onclick = ()=>{
+      assignStatus.textContent='';
+      if(!currentPlaylistId) return assignStatus.textContent='Select playlist first';
+      const sid = existingSongSelect.value;
+      if(!sid) return assignStatus.textContent='Select song';
+      fetch(API + `/songs/${sid}/playlist`,{
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ playlist_id: currentPlaylistId })
       })
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => {
-        exportJsonEl.value = JSON.stringify(data, null, 2);
-        downloadBtn.style.display = 'inline-block';
-      })
-      .catch(() => alert('Error exporting'));
+      .then(r=>r.ok?loadPlaylistSongs(currentPlaylistId):Promise.reject())
+      .then(()=>assignStatus.textContent='Assigned!')
+      .catch(()=>assignStatus.textContent='Error assigning');
     };
 
-    // Download JSON
-    downloadBtn.onclick = () => {
-      const blob = new Blob([exportJsonEl.value], { type: 'application/json' });
+    // — Load Songs in Playlist —–
+    function loadPlaylistSongs(pid){
+      fetch(API + `/playlists/${pid}/songs`,{ method:'GET' })
+        .then(r=>r.json())
+        .then(songs=>{
+          songsListEl.innerHTML='';
+          if (!Array.isArray(songs) || songs.length === 0) {
+            songsListEl.innerHTML = '<li>No songs in this playlist.</li>';
+            return;
+          }
+          songs.forEach(s=>{
+            const li = document.createElement('li');
+            li.textContent = `${s.title} (${s.artist}) `;
+            const del = document.createElement('button');
+            del.className='btn-small';
+            del.style.background='#dc3545';
+            del.textContent='Delete';
+            del.onclick=()=>{
+              if(!confirm('Delete permanently?'))return;
+              fetch(API + '/songs/' + s.id,{method:'DELETE'})
+                .then(()=>loadPlaylistSongs(pid));
+            };
+            li.append(del);
+            songsListEl.append(li);
+          });
+        })
+        .catch(()=>alert('Error loading playlist songs'));
+    }
+
+    // — Export Playlist —–
+    document.getElementById('exportPlaylistBtn').onclick = ()=>{
+      if(!currentPlaylistId) return alert('Select playlist');
+      fetch(API + `/playlists/${currentPlaylistId}/export`,{ method:'GET' })
+        .then(r=>r.json())
+        .then(data=>{
+          exportJsonEl.value = JSON.stringify(data,null,2);
+          downloadBtn.style.display='inline-block';
+        })
+        .catch(()=>alert('Error exporting'));
+    };
+
+    // — Download JSON —–
+    downloadBtn.onclick = ()=>{
+      const blob = new Blob([exportJsonEl.value],{type:'application/json'});
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const safe = (currentPlaylistName.trim() || currentPlaylistId).replace(/[\\\/:*?"<>|]/g,'_');
+      const a   = document.createElement('a');
+      a.href     = url;
+      const safe = (currentPlaylistName.trim()||currentPlaylistId).replace(/[\\\/:*?"<>|]/g,'_');
       a.download = `${safe}.json`;
       document.body.append(a);
       a.click();
@@ -369,29 +351,29 @@
       URL.revokeObjectURL(url);
     };
 
-    // Import Playlist
-    document.getElementById('importPlaylistBtn').onclick = () => {
-      importStatusEl.textContent = '';
-      let data;
-      try {
-        data = JSON.parse(importJsonEl.value);
-      } catch {
-        return importStatusEl.textContent = 'Invalid JSON';
+    // — Import Playlist —–
+    document.getElementById('importPlaylistBtn').onclick = async () => {
+      const fileInput = document.getElementById('import-file');
+      if (!fileInput.files.length) {
+        return alert('Please choose a JSON file to import.');
       }
-      fetch('http://localhost:5000/api/playlists/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken, playlist: data })
-      })
-      .then(r => r.json())
-      .then(res => {
-        if (res.imported_playlist_id) {
-          importStatusEl.textContent = `Imported as ${res.imported_playlist_id}`;
-        } else {
-          importStatusEl.textContent = `Error: ${res.error || 'unknown'}`;
-        }
-      })
-      .catch(() => importStatusEl.textContent = 'Request failed');
+      try {
+        const text = await fileInput.files[0].text();
+        const playlistExport = JSON.parse(text);
+        const res = await fetch(API + '/playlists/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken, playlist: playlistExport })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Import failed');
+        alert('Imported playlist ID: ' + data.imported_playlist_id);
+        document.getElementById('loadPlaylistsBtn').click();
+        fileInput.value = '';
+      } catch (err) {
+        console.error(err);
+        alert('Error importing playlist: ' + err.message);
+      }
     };
   </script>
 </body>
