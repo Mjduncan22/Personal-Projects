@@ -10,7 +10,7 @@ The app allows users to:
 
 The goal of this app is to create a functional tool that not only reinforces core Android development principles but also provides a meaningful, customizable planning experience.
 
-[Software Demo Video](http://youtube.link.goes.here)
+[Software Demo Video](https://youtu.be/mavZxmgHPKA)
 
 ---
 
